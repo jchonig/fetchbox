@@ -8,8 +8,22 @@ import (
 )
 
 type Config struct {
-	Interval  string    `yaml:"interval"`
-	Mailboxes []Mailbox `yaml:"mailboxes"`
+	Interval  string              `yaml:"interval"`
+	Storage   map[string]*Storage `yaml:"storage"`
+	Mailboxes []Mailbox           `yaml:"mailboxes"`
+}
+
+// Storage describes a named upload destination.
+// URL uses webdavs:// or webdav:// with the username embedded,
+// e.g. webdavs://user@host/remote.php/webdav/base/
+type Storage struct {
+	Type        string `yaml:"type"`
+	URL         string `yaml:"url"`
+	PasswordEnv string `yaml:"password_env"`
+}
+
+func (s *Storage) Password() string {
+	return os.Getenv(s.PasswordEnv)
 }
 
 type Mailbox struct {
@@ -36,20 +50,9 @@ type OAuth2Config struct {
 }
 
 type Folder struct {
-	Name        string      `yaml:"name"`
-	Destination Destination `yaml:"destination"`
-}
-
-type Destination struct {
-	Type        string `yaml:"type"` // "webdav"
-	URL         string `yaml:"url"`
-	Path        string `yaml:"path"`
-	Username    string `yaml:"username"`
-	PasswordEnv string `yaml:"password_env"`
-}
-
-func (d *Destination) Password() string {
-	return os.Getenv(d.PasswordEnv)
+	Name    string `yaml:"name"`
+	Storage string `yaml:"storage"` // key into Config.Storage
+	Path    string `yaml:"path"`
 }
 
 func loadConfig(path string) (*Config, error) {

@@ -1,8 +1,8 @@
 # docker-fetchbox
 
-FetchBox is a Go daemon that polls IMAP mailboxes, extracts attachments, and saves them to a WebDAV server. It runs as an s6-supervised service inside a [linuxserver.io](https://www.linuxserver.io/) Alpine container.
+FetchBox is a Go daemon that polls IMAP mailboxes — including Gmail via IMAP with OAuth2 — extracts attachments, and saves them to a WebDAV server. It runs as an s6-supervised service inside a [linuxserver.io](https://www.linuxserver.io/) Alpine container.
 
-Typical deployment: a Proton Mail Bridge container on the same Docker network provides an IMAP endpoint; FetchBox polls it alongside any number of other mailboxes (e.g. Gmail via OAuth2).
+Example deployment: a Proton Mail Bridge container on the same Docker network provides an IMAP endpoint for ProtonMail; FetchBox polls it alongside Gmail (IMAP + OAuth2) and any other standard IMAP server.
 
 ---
 
@@ -33,22 +33,23 @@ FetchBox reads `/config/fetchbox.yml` (mount your local `config/` directory as `
 ```yaml
 interval: 5m          # polling interval (any Go duration string)
 
+storage:
+  nextcloud:           # arbitrary name, referenced by folders
+    type: webdav
+    url: webdavs://you@nextcloud.example.com/remote.php/webdav/FetchBox/
+    password_env: WEBDAV_PASSWORD
+
 mailboxes:
   - name: ProtonMail
     host: bridge        # Docker service name on the internal network
     port: 1143
     tls: false
     username: you@proton.me
-    password_env: PROTON_PASSWORD   # name of the env var holding the password
-
+    password_env: PROTON_PASSWORD
     folders:
       - name: INBOX
-        destination:
-          type: webdav
-          url: https://dav.example.com
-          path: /attachments/proton/
-          username: davuser
-          password_env: WEBDAV_PASSWORD
+        storage: nextcloud
+        path: /proton/
 
   - name: Gmail
     host: imap.gmail.com
@@ -60,15 +61,10 @@ mailboxes:
       client_id_env: GMAIL_CLIENT_ID
       client_secret_env: GMAIL_CLIENT_SECRET
       refresh_token_env: GMAIL_REFRESH_TOKEN
-
     folders:
       - name: INBOX
-        destination:
-          type: webdav
-          url: https://dav.example.com
-          path: /attachments/gmail/
-          username: davuser
-          password_env: WEBDAV_PASSWORD
+        storage: nextcloud
+        path: /gmail/
 ```
 
 ### Mailbox fields
@@ -81,7 +77,7 @@ mailboxes:
 | `tls` | `true` for direct TLS (e.g. port 993); `false` for plain |
 | `starttls` | `true` to upgrade a plain connection with STARTTLS |
 | `username` | IMAP login username |
-| `password_env` | Name of the environment variable containing the password |
+| `password_env` | Name of the environment variable containing the IMAP password |
 | `auth` | `plain` (default) or `oauth2` |
 | `oauth2` | OAuth2 credentials block (Gmail); see below |
 | `folders` | List of folders to watch |
@@ -94,15 +90,21 @@ mailboxes:
 | `client_secret_env` | Env var with the Google OAuth2 client secret |
 | `refresh_token_env` | Env var with the offline refresh token |
 
-### Destination fields
+### Storage fields
 
 | Field | Description |
 |---|---|
 | `type` | `webdav` (the only type currently supported) |
-| `url` | Base URL of the WebDAV server |
-| `path` | Path on the server under which attachments are placed |
-| `username` | WebDAV username (optional) |
+| `url` | WebDAV base URL using `webdavs://` (TLS) or `webdav://` scheme; embed the username in the URL, e.g. `webdavs://user@host/path/` |
 | `password_env` | Name of the environment variable containing the WebDAV password |
+
+### Folder fields
+
+| Field | Description |
+|---|---|
+| `name` | IMAP folder name (e.g. `INBOX`) |
+| `storage` | Name of a storage entry defined in the top-level `storage:` map |
+| `path` | Path within the storage base URL where attachments are placed |
 
 ---
 
