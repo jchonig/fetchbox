@@ -24,15 +24,15 @@ func TestWebDAVUpload(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	dest := Destination{
+	// Build a webdav:// URL pointing at the test server (http underneath).
+	// httptest.Server uses http, so we use webdav:// → http.
+	stor := &Storage{
 		Type:        "webdav",
-		URL:         srv.URL,
-		Path:        "/files/",
-		Username:    "user",
+		URL:         "webdav://user@" + srv.Listener.Addr().String() + "/",
 		PasswordEnv: "",
 	}
 
-	u, err := newWebDAVUploader(dest)
+	u, err := newWebDAVUploader(stor, "/files/")
 	if err != nil {
 		t.Fatalf("newWebDAVUploader: %v", err)
 	}
@@ -62,8 +62,11 @@ func TestWebDAVUploadError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	dest := Destination{Type: "webdav", URL: srv.URL, Path: "/"}
-	u, err := newWebDAVUploader(dest)
+	stor := &Storage{
+		Type: "webdav",
+		URL:  "webdav://" + srv.Listener.Addr().String() + "/",
+	}
+	u, err := newWebDAVUploader(stor, "/")
 	if err != nil {
 		t.Fatalf("newWebDAVUploader: %v", err)
 	}
@@ -75,9 +78,17 @@ func TestWebDAVUploadError(t *testing.T) {
 }
 
 func TestWebDAVUnsupportedType(t *testing.T) {
-	dest := Destination{Type: "s3"}
-	_, err := newWebDAVUploader(dest)
+	stor := &Storage{Type: "s3", URL: "s3://bucket/"}
+	_, err := newWebDAVUploader(stor, "/")
 	if err == nil {
 		t.Fatal("expected error for unsupported type, got nil")
+	}
+}
+
+func TestWebDAVBadScheme(t *testing.T) {
+	stor := &Storage{Type: "webdav", URL: "https://host/path"}
+	_, err := newWebDAVUploader(stor, "/")
+	if err == nil {
+		t.Fatal("expected error for non-webdav scheme, got nil")
 	}
 }

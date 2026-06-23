@@ -8,6 +8,11 @@ import (
 func TestLoadConfig(t *testing.T) {
 	yaml := `
 interval: 10m
+storage:
+  nextcloud:
+    type: webdav
+    url: webdavs://davuser@dav.example.com/webdav/
+    password_env: WEBDAV_PASSWORD
 mailboxes:
   - name: TestBox
     host: localhost
@@ -16,12 +21,8 @@ mailboxes:
     password_env: TEST_PASSWORD
     folders:
       - name: INBOX
-        destination:
-          type: webdav
-          url: http://dav.example.com
-          path: /attachments/
-          username: davuser
-          password_env: WEBDAV_PASSWORD
+        storage: nextcloud
+        path: /attachments/
 `
 	f, err := os.CreateTemp("", "fetchbox-*.yml")
 	if err != nil {
@@ -39,6 +40,12 @@ mailboxes:
 	if cfg.Interval != "10m" {
 		t.Errorf("interval: got %q, want %q", cfg.Interval, "10m")
 	}
+	if len(cfg.Storage) != 1 {
+		t.Fatalf("storage: got %d, want 1", len(cfg.Storage))
+	}
+	if cfg.Storage["nextcloud"].Type != "webdav" {
+		t.Errorf("storage type: got %q", cfg.Storage["nextcloud"].Type)
+	}
 	if len(cfg.Mailboxes) != 1 {
 		t.Fatalf("mailboxes: got %d, want 1", len(cfg.Mailboxes))
 	}
@@ -52,8 +59,11 @@ mailboxes:
 	if len(mb.Folders) != 1 {
 		t.Fatalf("folders: got %d, want 1", len(mb.Folders))
 	}
-	if mb.Folders[0].Destination.Type != "webdav" {
-		t.Errorf("destination type: got %q", mb.Folders[0].Destination.Type)
+	if mb.Folders[0].Storage != "nextcloud" {
+		t.Errorf("folder storage: got %q", mb.Folders[0].Storage)
+	}
+	if mb.Folders[0].Path != "/attachments/" {
+		t.Errorf("folder path: got %q", mb.Folders[0].Path)
 	}
 }
 
@@ -90,10 +100,10 @@ func TestMailboxPassword(t *testing.T) {
 	}
 }
 
-func TestDestinationPassword(t *testing.T) {
+func TestStoragePassword(t *testing.T) {
 	t.Setenv("DAV_PASS", "davpass")
-	d := Destination{PasswordEnv: "DAV_PASS"}
-	if got := d.Password(); got != "davpass" {
+	s := Storage{PasswordEnv: "DAV_PASS"}
+	if got := s.Password(); got != "davpass" {
 		t.Errorf("Password(): got %q, want %q", got, "davpass")
 	}
 }

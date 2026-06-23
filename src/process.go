@@ -56,9 +56,14 @@ func (p *processor) processMailbox(mb Mailbox) error {
 	defer client.Close()
 
 	for _, folder := range mb.Folders {
-		uploader, err := newWebDAVUploader(folder.Destination)
+		stor, ok := p.cfg.Storage[folder.Storage]
+		if !ok {
+			log.Printf("  folder %s: unknown storage %q", folder.Name, folder.Storage)
+			continue
+		}
+		uploader, err := newWebDAVUploader(stor, folder.Path)
 		if err != nil {
-			log.Printf("  folder %s: destination error: %v", folder.Name, err)
+			log.Printf("  folder %s: storage error: %v", folder.Name, err)
 			continue
 		}
 		if err := processFolder(client, folder.Name, uploader, p.noop, p.logger); err != nil {

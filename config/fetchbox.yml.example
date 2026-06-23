@@ -1,5 +1,11 @@
 interval: 5m
 
+storage:
+  nextcloud:
+    type: webdav
+    url: webdavs://you@nextcloud.example.com/remote.php/webdav/FetchBox/
+    password_env: WEBDAV_PASSWORD
+
 mailboxes:
   - name: ProtonMail
     host: bridge
@@ -9,12 +15,8 @@ mailboxes:
     password_env: PROTON_PASSWORD
     folders:
       - name: INBOX
-        destination:
-          type: webdav
-          url: https://dav.example.com
-          path: /attachments/proton/
-          username: davuser
-          password_env: WEBDAV_PASSWORD
+        storage: nextcloud
+        path: /proton/
 
   - name: Gmail
     host: imap.gmail.com
@@ -28,9 +30,5 @@ mailboxes:
       refresh_token_env: GMAIL_REFRESH_TOKEN
     folders:
       - name: INBOX
-        destination:
-          type: webdav
-          url: https://dav.example.com
-          path: /attachments/gmail/
-          username: davuser
-          password_env: WEBDAV_PASSWORD
+        storage: nextcloud
+        path: /gmail/
