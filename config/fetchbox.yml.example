@@ -9,7 +9,7 @@ storage:
 mailboxes:
   - name: ProtonMail
     host: bridge
-    port: 1143
+    port: 143
     tls: false
     username: you@proton.me
     password_env: PROTON_PASSWORD

@@ -1,6 +1,6 @@
 services:
   bridge:
-    image: shenxn/protonmail-bridge:latest
+    image: ghcr.io/videocurio/proton-mail-bridge:latest
     restart: unless-stopped
     volumes:
       - bridge-data:/root
