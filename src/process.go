@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 
 	"github.com/emersion/go-message/mail"
 )
@@ -144,6 +145,9 @@ func extractAttachments(rawMsg []byte) ([]Attachment, error) {
 		filename, err := ah.Filename()
 		if err != nil || filename == "" {
 			continue
+		}
+		if decoded, err := new(mime.WordDecoder).DecodeHeader(filename); err == nil {
+			filename = decoded
 		}
 
 		data, err := io.ReadAll(p.Body)

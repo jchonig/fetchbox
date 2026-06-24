@@ -144,6 +144,23 @@ func TestProcessFolderUploadError(t *testing.T) {
 	}
 }
 
+func TestExtractAttachmentsEncodedFilename(t *testing.T) {
+	// "Report.pdf" encoded as =?UTF-8?B?...?= (RFC 2047 base64)
+	data := []byte("file contents")
+	raw := buildMessageRawFilename(`"=?UTF-8?B?UmVwb3J0LnBkZg==?="`, data)
+
+	atts, err := extractAttachments(raw)
+	if err != nil {
+		t.Fatalf("extractAttachments: %v", err)
+	}
+	if len(atts) != 1 {
+		t.Fatalf("expected 1 attachment, got %d", len(atts))
+	}
+	if atts[0].Filename != "Report.pdf" {
+		t.Errorf("filename: got %q, want %q", atts[0].Filename, "Report.pdf")
+	}
+}
+
 func TestExtractAttachmentsNone(t *testing.T) {
 	msg := "From: a@b.com\r\nTo: c@d.com\r\nSubject: hi\r\nContent-Type: text/plain\r\n\r\nbody\r\n"
 	atts, err := extractAttachments([]byte(msg))
