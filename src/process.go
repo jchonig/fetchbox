@@ -110,7 +110,7 @@ func processFolder(fetcher MailFetcher, folder string, deleteAfter bool, trashFo
 					log.Printf("  uid %d: upload %q: %v", msg.UID, att.Filename, err)
 					saved = false
 				} else {
-					l.infof("  uid %d: uploaded %q", msg.UID, att.Filename)
+					log.Printf("  uid %d: uploaded %q", msg.UID, att.Filename)
 				}
 			}
 		}
