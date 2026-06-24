@@ -91,8 +91,12 @@ func launchdInstall(configPath string) error {
 	f.Close()
 
 	uid := os.Getuid()
-	out, err := exec.Command("launchctl", "bootstrap",
-		fmt.Sprintf("gui/%d", uid), plistPath).CombinedOutput()
+	target := fmt.Sprintf("gui/%d", uid)
+
+	// bootout first so re-install and post-upgrade installs work cleanly
+	exec.Command("launchctl", "bootout", target, plistPath).Run() //nolint:errcheck
+
+	out, err := exec.Command("launchctl", "bootstrap", target, plistPath).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("launchctl bootstrap: %w\n%s", err, out)
 	}
