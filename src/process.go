@@ -8,6 +8,7 @@ import (
 	"log"
 	"mime"
 	"sync"
+	"time"
 
 	"github.com/emersion/go-message/mail"
 )
@@ -17,6 +18,9 @@ type MailFetcher interface {
 	Fetch(folder string, unseenOnly bool) ([]RawMessage, error)
 	MarkSeen(folder string, uids []uint32) error
 	DeleteMessages(folder string, uids []uint32, trashFolder string) error
+	// IdleSelected enters IMAP IDLE on the already-selected folder, blocking
+	// until a new-mail notification arrives or stop is closed.
+	IdleSelected(stop <-chan struct{}) error
 	Close() error
 }
 
@@ -59,7 +63,7 @@ func (p *processor) run() {
 
 func (p *processor) processMailbox(mb Mailbox) error {
 	p.logger.infof("[%s] connecting to %s:%d", mb.Name, mb.Host, mb.Port)
-	client, err := newIMAPClient(mb, p.logger)
+	client, err := newIMAPClient(mb, p.logger, nil)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -82,6 +86,91 @@ func (p *processor) processMailbox(mb Mailbox) error {
 		}
 	}
 	return nil
+}
+
+// watchFolder runs a persistent IDLE loop for a single folder, processing new
+// messages as they arrive. It reconnects with exponential backoff on error and
+// returns when stop is closed.
+func (p *processor) watchFolder(mb Mailbox, folder Folder, stop <-chan struct{}) {
+	stor, ok := p.cfg.Storage[folder.Storage]
+	if !ok {
+		log.Printf("[%s/%s] unknown storage %q", mb.Name, folder.Name, folder.Storage)
+		return
+	}
+	uploader, err := newWebDAVUploader(stor, folder.Path)
+	if err != nil {
+		log.Printf("[%s/%s] storage error: %v", mb.Name, folder.Name, err)
+		return
+	}
+
+	backoff := 5 * time.Second
+	for {
+		select {
+		case <-stop:
+			return
+		default:
+		}
+
+		notify := make(chan struct{}, 1)
+		p.logger.infof("[%s/%s] connecting to %s:%d", mb.Name, folder.Name, mb.Host, mb.Port)
+		client, err := newIMAPClient(mb, p.logger, notify)
+		if err != nil {
+			log.Printf("[%s/%s] connect: %v; retry in %v", mb.Name, folder.Name, err, backoff)
+			select {
+			case <-time.After(backoff):
+				backoff = min(backoff*2, 5*time.Minute)
+			case <-stop:
+				return
+			}
+			continue
+		}
+		backoff = 5 * time.Second
+		p.logger.infof("[%s/%s] logged in as %s", mb.Name, folder.Name, mb.Username)
+
+		// Initial catch-up: process any messages that arrived while disconnected.
+		if err := processFolder(client, folder.Name, folder.DeleteAfter, mb.TrashFolder, uploader, p.noop, p.logger); err != nil {
+			log.Printf("[%s/%s] initial process: %v", mb.Name, folder.Name, err)
+			client.Close()
+			continue
+		}
+
+		// IDLE loop: Fetch leaves the folder selected so Idle() follows immediately.
+		connOK := true
+		for connOK {
+			select {
+			case <-stop:
+				client.Close()
+				return
+			default:
+			}
+
+			if err := client.IdleSelected(stop); err != nil {
+				log.Printf("[%s/%s] idle: %v", mb.Name, folder.Name, err)
+				connOK = false
+				break
+			}
+
+			// Check for shutdown after waking from IDLE.
+			select {
+			case <-stop:
+				client.Close()
+				return
+			default:
+			}
+
+			// Drain any extra notify to avoid an immediate redundant re-trigger.
+			select {
+			case <-notify:
+			default:
+			}
+
+			if err := processFolder(client, folder.Name, folder.DeleteAfter, mb.TrashFolder, uploader, p.noop, p.logger); err != nil {
+				log.Printf("[%s/%s] process: %v", mb.Name, folder.Name, err)
+				connOK = false
+			}
+		}
+		client.Close()
+	}
 }
 
 func processFolder(fetcher MailFetcher, folder string, deleteAfter bool, trashFolder string, uploader FileUploader, noop bool, l *logger) error {

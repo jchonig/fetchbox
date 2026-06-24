@@ -17,10 +17,14 @@ import (
 )
 
 type imapClient struct {
-	c *imapclient.Client
+	c      *imapclient.Client
+	notify chan struct{}
 }
 
-func newIMAPClient(mb Mailbox, l *logger) (MailFetcher, error) {
+// newIMAPClient dials, authenticates, and returns a MailFetcher.
+// notify, if non-nil, receives a signal whenever the server reports new messages
+// (used for IDLE mode); pass nil for single-run mode.
+func newIMAPClient(mb Mailbox, l *logger, notify chan struct{}) (MailFetcher, error) {
 	addr := net.JoinHostPort(mb.Host, strconv.Itoa(mb.Port))
 
 	opts := &imapclient.Options{}
@@ -29,6 +33,18 @@ func newIMAPClient(mb Mailbox, l *logger) (MailFetcher, error) {
 	}
 	if l != nil && l.debug {
 		opts.DebugWriter = log.Writer()
+	}
+	if notify != nil {
+		opts.UnilateralDataHandler = &imapclient.UnilateralDataHandler{
+			Mailbox: func(data *imapclient.UnilateralDataMailbox) {
+				if data.NumMessages != nil {
+					select {
+					case notify <- struct{}{}:
+					default: // signal already pending
+					}
+				}
+			},
+		}
 	}
 
 	var (
@@ -49,7 +65,7 @@ func newIMAPClient(mb Mailbox, l *logger) (MailFetcher, error) {
 		return nil, err
 	}
 
-	return &imapClient{c: c}, nil
+	return &imapClient{c: c, notify: notify}, nil
 }
 
 func imapAuth(c *imapclient.Client, mb Mailbox) error {
@@ -213,13 +229,29 @@ func (ic *imapClient) MarkSeen(folder string, uids []uint32) error {
 	}, nil).Close()
 }
 
+// IdleSelected enters IMAP IDLE on the already-selected folder and blocks until
+// a new-mail notification arrives or stop is closed. The folder must have been
+// selected by a prior Fetch call.
+func (ic *imapClient) IdleSelected(stop <-chan struct{}) error {
+	idleCmd, err := ic.c.Idle()
+	if err != nil {
+		return err
+	}
+	select {
+	case <-ic.notify:
+	case <-stop:
+	}
+	idleCmd.Close()
+	return idleCmd.Wait()
+}
+
 func (ic *imapClient) Close() error {
 	return ic.c.Logout().Wait()
 }
 
 // listFolders connects to mb and prints all mailbox names to stdout.
 func listFolders(mb Mailbox) error {
-	client, err := newIMAPClient(mb, nil)
+	client, err := newIMAPClient(mb, nil, nil)
 	if err != nil {
 		return err
 	}

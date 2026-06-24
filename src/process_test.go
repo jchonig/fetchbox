@@ -45,6 +45,8 @@ func (f *fakeFetcher) MarkSeen(folder string, uids []uint32) error {
 	return nil
 }
 
+func (f *fakeFetcher) IdleSelected(_ <-chan struct{}) error { return nil }
+
 func (f *fakeFetcher) Close() error { return nil }
 
 // fakeUploader is a test double for FileUploader.
