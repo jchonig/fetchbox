@@ -88,8 +88,6 @@ The default config path is `~/.config/fetchbox.yml`. Override with `--config`.
 When running in Docker, mount your local `config/` directory as `/config:ro`; the container reads `/config/fetchbox.yml`.
 
 ```yaml
-interval: 5m          # polling interval (any Go duration string)
-
 storage:
   nextcloud:           # arbitrary name, referenced by folders
     type: webdav
@@ -202,7 +200,7 @@ GMAIL_REFRESH_TOKEN=
 ```
 fetchbox [flags]
   --config path        path to config file (default ~/.config/fetchbox.yml)
-  --daemon             run continuously at the configured interval
+  --daemon             run continuously, processing new mail via IMAP IDLE
   --list-folders       list available IMAP folders for each mailbox and exit
   --version            print version and exit
   -v                   verbose logging (connect/login/folder messages)
@@ -214,7 +212,9 @@ fetchbox [flags]
 
 ## Behaviour
 
-On each poll cycle, for every configured mailbox and folder:
+### Single-run mode (default)
+
+For every configured mailbox and folder:
 
 1. Connect to the IMAP server and authenticate.
 2. UID-search for unseen (`\Seen` flag absent) messages.
@@ -223,7 +223,18 @@ On each poll cycle, for every configured mailbox and folder:
 5. HTTP PUT each attachment to the configured WebDAV destination.
 6. Mark each successfully processed message as `\Seen`.
 
-Messages with no attachments are marked seen immediately so they are not re-examined on the next cycle.
+### Daemon mode (`--daemon`)
+
+One goroutine per folder runs a persistent IMAP connection:
+
+1. Connect and authenticate.
+2. Process any messages that arrived while disconnected (catch-up pass).
+3. Enter IMAP IDLE — the server pushes a notification the moment new mail arrives.
+4. On notification: exit IDLE, process new messages, re-enter IDLE.
+5. On any connection error: close and reconnect with exponential backoff (5 s → doubles → max 5 min).
+6. On SIGINT/SIGTERM: all goroutines finish their current pass and exit cleanly.
+
+Messages with no attachments are marked seen immediately so they are not re-examined.
 
 ---
 

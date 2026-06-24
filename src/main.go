@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
+	"os/signal"
+	"sync"
+	"syscall"
 )
 
 var version = "dev"
@@ -29,7 +31,7 @@ func (l *logger) debugf(format string, args ...any) {
 
 func main() {
 	var (
-		daemon       = flag.Bool("daemon", false, "run continuously at configured interval")
+		daemon       = flag.Bool("daemon", false, "run continuously, processing new mail via IMAP IDLE")
 		listFoldersF = flag.Bool("list-folders", false, "list IMAP folders and exit")
 		versionF     = flag.Bool("version", false, "print version and exit")
 		verbose      = flag.Bool("v", false, "verbose logging")
@@ -60,21 +62,35 @@ func main() {
 		return
 	}
 
-	interval, err := time.ParseDuration(cfg.Interval)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "fetchbox: invalid interval %q: %v\n", cfg.Interval, err)
-		os.Exit(1)
-	}
-
 	p := &processor{
 		cfg:    cfg,
 		noop:   *noop,
 		logger: &logger{verbose: *verbose, debug: *debug},
 	}
 
-	p.run()
-	for *daemon {
-		time.Sleep(interval)
+	if !*daemon {
 		p.run()
+		return
 	}
+
+	stop := make(chan struct{})
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigs
+		log.Printf("shutting down...")
+		close(stop)
+	}()
+
+	var wg sync.WaitGroup
+	for _, mb := range cfg.Mailboxes {
+		for _, folder := range mb.Folders {
+			wg.Add(1)
+			go func(mb Mailbox, f Folder) {
+				defer wg.Done()
+				p.watchFolder(mb, f, stop)
+			}(mb, folder)
+		}
+	}
+	wg.Wait()
 }
