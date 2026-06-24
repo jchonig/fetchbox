@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -22,10 +23,6 @@ type Storage struct {
 	PasswordEnv string `yaml:"password_env"`
 }
 
-func (s *Storage) Password() string {
-	return os.Getenv(s.PasswordEnv)
-}
-
 type Mailbox struct {
 	Name        string        `yaml:"name"`
 	Host        string        `yaml:"host"`
@@ -39,8 +36,10 @@ type Mailbox struct {
 	Folders     []Folder      `yaml:"folders"`
 }
 
-func (m *Mailbox) Password() string {
-	return os.Getenv(m.PasswordEnv)
+// Password returns the IMAP password, preferring the named env var and
+// falling back to the Keychain (macOS) keyed by the mailbox username.
+func (m *Mailbox) Password() (string, error) {
+	return getSecret(m.PasswordEnv, "fetchbox", m.Username)
 }
 
 type OAuth2Config struct {
@@ -53,6 +52,11 @@ type Folder struct {
 	Name    string `yaml:"name"`
 	Storage string `yaml:"storage"` // key into Config.Storage
 	Path    string `yaml:"path"`
+}
+
+func defaultConfigPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "fetchbox.yml")
 }
 
 func loadConfig(path string) (*Config, error) {

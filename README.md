@@ -1,12 +1,57 @@
-# docker-fetchbox
+# fetchbox
 
-FetchBox is a Go daemon that polls IMAP mailboxes — including Gmail via IMAP with OAuth2 — extracts attachments, and saves them to a WebDAV server. It runs as an s6-supervised service inside a [linuxserver.io](https://www.linuxserver.io/) Alpine container.
+FetchBox is a Go daemon that polls IMAP mailboxes — including Gmail via IMAP with OAuth2 — extracts attachments, and saves them to a WebDAV server (e.g. Nextcloud).
 
-Example deployment: a Proton Mail Bridge container on the same Docker network provides an IMAP endpoint for ProtonMail; FetchBox polls it alongside Gmail (IMAP + OAuth2) and any other standard IMAP server.
+Two deployment modes:
+
+- **macOS native binary** — installs via Homebrew; credentials stored in the macOS Keychain; integrates with the [Proton Mail Bridge](https://proton.me/mail/bridge) desktop app running on localhost.
+- **Docker container** — runs as an s6-supervised service inside a [linuxserver.io](https://www.linuxserver.io/) Alpine container; secrets passed via environment variables; works alongside a Proton Mail Bridge container on the same Docker network.
 
 ---
 
-## Quick start
+## macOS Quick Start
+
+### Install
+
+```bash
+brew install jchonig/tap/fetchbox
+```
+
+Or download a release tarball from the [GitHub Releases page](https://github.com/jchonig/docker-fetchbox/releases) and place the binary in your `PATH`.
+
+### Configure
+
+```bash
+mkdir -p ~/.config
+cp /path/to/fetchbox.yml.example ~/.config/fetchbox.yml
+# edit ~/.config/fetchbox.yml
+```
+
+### First run — populate Keychain
+
+Run interactively once so FetchBox can prompt for and store each secret:
+
+```bash
+fetchbox --list-folders
+```
+
+On first use, FetchBox will prompt for each password/secret not already in the Keychain and store it under the `fetchbox` service. Subsequent runs (and the background daemon) read from the Keychain without prompting.
+
+### Install as a launchd service
+
+```bash
+fetchbox --install
+```
+
+This writes `~/Library/LaunchAgents/net.honig.fetchbox.plist`, bootstraps the service immediately, and logs to `~/Library/Logs/fetchbox.log`.
+
+```bash
+fetchbox --uninstall    # remove the service
+```
+
+---
+
+## Docker Quick Start
 
 ```bash
 git clone https://github.com/jchonig/docker-fetchbox.git
@@ -16,7 +61,7 @@ cp .env.example .env                                  # fill in secrets
 docker compose up -d
 ```
 
-### One-time Proton Mail Bridge login
+### One-time Proton Mail Bridge login (Docker)
 
 ```bash
 # Open a shell in the bridge container, stop the background bridge instance,
@@ -37,7 +82,9 @@ docker compose restart bridge
 
 ## Configuration
 
-FetchBox reads `/config/fetchbox.yml` (mount your local `config/` directory as `/config:ro`).
+The default config path is `~/.config/fetchbox.yml`. Override with `--config`.
+
+When running in Docker, mount your local `config/` directory as `/config:ro`; the container reads `/config/fetchbox.yml`.
 
 ```yaml
 interval: 5m          # polling interval (any Go duration string)
@@ -46,15 +93,16 @@ storage:
   nextcloud:           # arbitrary name, referenced by folders
     type: webdav
     url: webdavs://you@nextcloud.example.com/remote.php/webdav/FetchBox/
-    password_env: WEBDAV_PASSWORD
+    password_env: WEBDAV_PASSWORD   # optional on macOS — Keychain used if unset
 
 mailboxes:
   - name: ProtonMail
-    host: bridge        # Docker service name on the internal network
-    port: 143
+    host: localhost     # Proton Mail Bridge desktop app (macOS)
+    # host: bridge      # Docker service name on the internal network
+    port: 1143
     tls: false
     username: you@proton.me
-    password_env: PROTON_PASSWORD
+    password_env: PROTON_PASSWORD   # optional on macOS — Keychain used if unset
     folders:
       - name: INBOX
         storage: nextcloud
@@ -86,7 +134,7 @@ mailboxes:
 | `tls` | `true` for direct TLS (e.g. port 993); `false` for plain |
 | `starttls` | `true` to upgrade a plain connection with STARTTLS |
 | `username` | IMAP login username |
-| `password_env` | Name of the environment variable containing the IMAP password |
+| `password_env` | Env var containing the IMAP password. On macOS, falls back to the Keychain if unset or empty. |
 | `auth` | `plain` (default) or `oauth2` |
 | `oauth2` | OAuth2 credentials block (Gmail); see below |
 | `folders` | List of folders to watch |
@@ -96,8 +144,8 @@ mailboxes:
 | Field | Description |
 |---|---|
 | `client_id` | Google OAuth2 client ID (not a secret; stored directly in config) |
-| `client_secret_env` | Env var with the Google OAuth2 client secret |
-| `refresh_token_env` | Env var with the offline refresh token |
+| `client_secret_env` | Env var with the Google OAuth2 client secret. On macOS, falls back to Keychain. |
+| `refresh_token_env` | Env var with the offline refresh token. On macOS, falls back to Keychain. |
 
 ### Storage fields
 
@@ -105,7 +153,7 @@ mailboxes:
 |---|---|
 | `type` | `webdav` (the only type currently supported) |
 | `url` | WebDAV base URL using `webdavs://` (TLS) or `webdav://` scheme; embed the username in the URL, e.g. `webdavs://user@host/path/` |
-| `password_env` | Name of the environment variable containing the WebDAV password |
+| `password_env` | Env var containing the WebDAV password. On macOS, falls back to Keychain. |
 
 ### Folder fields
 
@@ -117,9 +165,21 @@ mailboxes:
 
 ---
 
-## Environment variables
+## Secrets
 
-Secrets are passed via environment variables referenced by name in the config file. Create a `.env` file (never committed — it is in `.gitignore`):
+### macOS
+
+Secrets are looked up in this order:
+
+1. The environment variable named by `*_env` in the config (if set and non-empty).
+2. The macOS Keychain (`security find-generic-password -s fetchbox -a <account>`).
+3. Interactive prompt on a TTY — the entered value is stored in the Keychain for future use.
+
+Run `fetchbox --list-folders` once interactively to seed all secrets into the Keychain before starting the background daemon.
+
+### Docker / Linux
+
+Secrets are passed via environment variables referenced by name in the config. Create a `.env` file (never committed — it is in `.gitignore`):
 
 ```
 PROTON_PASSWORD=
@@ -132,13 +192,13 @@ GMAIL_REFRESH_TOKEN=
 
 ## CLI flags
 
-When running outside of the container (for debugging):
-
 ```
 fetchbox [flags]
-  --config path        path to config file (default /config/fetchbox.yml)
+  --config path        path to config file (default ~/.config/fetchbox.yml)
   --daemon             run continuously at the configured interval
   --list-folders       list available IMAP folders for each mailbox and exit
+  --install            install launchd service and exit (macOS only)
+  --uninstall          remove launchd service and exit (macOS only)
   -v                   verbose logging
   -d                   debug logging
   -n                   dry run — fetch but do not upload or mark messages seen
@@ -185,11 +245,19 @@ volumes:
   bridge-data:
 ```
 
-The [VideoCurio Proton Mail Bridge](https://github.com/VideoCurio/ProtonMailBridgeDocker) image stores credentials under `/root` — the named volume above persists them across restarts. Only an initial interactive login is needed (see Quick start). The bridge listens on port 143 for IMAP inside the Docker network.
+The [VideoCurio Proton Mail Bridge](https://github.com/VideoCurio/ProtonMailBridgeDocker) image stores credentials under `/root` — the named volume above persists them across restarts. Only an initial interactive login is needed (see Docker Quick Start above). The bridge listens on port 143 for IMAP inside the Docker network.
 
 ---
 
 ## Updates
+
+### macOS
+
+```bash
+brew upgrade fetchbox
+```
+
+### Docker
 
 ```bash
 docker compose pull && docker compose up -d
@@ -204,11 +272,14 @@ CI pushes a new `latest` image on every merge to `main`.
 All build and test steps run inside Docker — nothing needs to be installed locally.
 
 ```bash
-make build          # compile check (golang:1.26-alpine)
-make lint           # go vet + gofmt check
-make test           # go test -race ./... (golang:1.26)
-make docker-build   # build the container image
-make docker-push    # push to ghcr.io
+make build                # compile check (golang:1.26-alpine)
+make lint                 # go vet + gofmt check
+make test                 # go test -race ./... (golang:1.26)
+make build-darwin-arm64   # cross-compile macOS arm64 → dist/fetchbox-darwin-arm64.tar.gz
+make build-darwin-amd64   # cross-compile macOS amd64 → dist/fetchbox-darwin-amd64.tar.gz
+make release              # both darwin tarballs
+make docker-build         # build the container image
+make docker-push          # push to ghcr.io
 ```
 
 Go source lives in `src/`. Container overlay files (s6 service, etc.) live in `root/`.
@@ -223,7 +294,7 @@ make hooks
 
 This sets `core.hooksPath = .githooks` in the local git config. The hook scripts are tracked in `.githooks/` so they stay in sync with the repo.
 
-### Running against a live mailbox
+### Running against a live mailbox (Docker)
 
 ```bash
 docker run --rm \

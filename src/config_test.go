@@ -94,16 +94,12 @@ func TestLoadConfigMissingFile(t *testing.T) {
 
 func TestMailboxPassword(t *testing.T) {
 	t.Setenv("MY_PASSWORD", "s3cr3t")
-	mb := Mailbox{PasswordEnv: "MY_PASSWORD"}
-	if got := mb.Password(); got != "s3cr3t" {
-		t.Errorf("Password(): got %q, want %q", got, "s3cr3t")
+	mb := Mailbox{Username: "user@example.com", PasswordEnv: "MY_PASSWORD"}
+	got, err := mb.Password()
+	if err != nil {
+		t.Fatalf("Password(): unexpected error: %v", err)
 	}
-}
-
-func TestStoragePassword(t *testing.T) {
-	t.Setenv("DAV_PASS", "davpass")
-	s := Storage{PasswordEnv: "DAV_PASS"}
-	if got := s.Password(); got != "davpass" {
-		t.Errorf("Password(): got %q, want %q", got, "davpass")
+	if got != "s3cr3t" {
+		t.Errorf("Password(): got %q, want %q", got, "s3cr3t")
 	}
 }

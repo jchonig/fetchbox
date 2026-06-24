@@ -29,12 +29,30 @@ func main() {
 	var (
 		daemon       = flag.Bool("daemon", false, "run continuously at configured interval")
 		listFoldersF = flag.Bool("list-folders", false, "list IMAP folders and exit")
+		install      = flag.Bool("install", false, "install launchd service and exit (macOS only)")
+		uninstall    = flag.Bool("uninstall", false, "remove launchd service and exit (macOS only)")
 		verbose      = flag.Bool("v", false, "verbose logging")
 		debug        = flag.Bool("d", false, "debug logging")
 		noop         = flag.Bool("n", false, "dry run — fetch but do not save or mark seen")
-		configPath   = flag.String("config", "/config/fetchbox.yml", "path to config file")
+		configPath   = flag.String("config", defaultConfigPath(), "path to config file")
 	)
 	flag.Parse()
+
+	if *install {
+		if err := launchdInstall(*configPath); err != nil {
+			fmt.Fprintf(os.Stderr, "fetchbox: install: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if *uninstall {
+		if err := launchdUninstall(); err != nil {
+			fmt.Fprintf(os.Stderr, "fetchbox: uninstall: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	cfg, err := loadConfig(*configPath)
 	if err != nil {

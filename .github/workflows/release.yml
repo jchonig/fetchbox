@@ -1,0 +1,25 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build darwin binaries
+        run: make release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/fetchbox-darwin-arm64.tar.gz
+            dist/fetchbox-darwin-amd64.tar.gz
+          generate_release_notes: true

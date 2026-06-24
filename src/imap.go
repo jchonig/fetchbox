@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strconv"
 
 	"github.com/emersion/go-imap/v2"
@@ -48,7 +47,7 @@ func newIMAPClient(mb Mailbox) (MailFetcher, error) {
 
 func imapAuth(c *imapclient.Client, mb Mailbox) error {
 	if mb.Auth == "oauth2" {
-		token, err := gmailAccessToken(mb.OAuth2)
+		token, err := gmailAccessToken(mb.OAuth2, mb.Username)
 		if err != nil {
 			return fmt.Errorf("oauth2: %w", err)
 		}
@@ -58,18 +57,31 @@ func imapAuth(c *imapclient.Client, mb Mailbox) error {
 		})
 		return c.Authenticate(saslClient)
 	}
-	return c.Login(mb.Username, mb.Password()).Wait()
+	pw, err := mb.Password()
+	if err != nil {
+		return fmt.Errorf("get password: %w", err)
+	}
+	return c.Login(mb.Username, pw).Wait()
 }
 
-func gmailAccessToken(cfg *OAuth2Config) (string, error) {
+func gmailAccessToken(cfg *OAuth2Config, username string) (string, error) {
+	clientSecret, err := getSecret(cfg.ClientSecretEnv, "fetchbox:oauth2:secret", username)
+	if err != nil {
+		return "", fmt.Errorf("client secret: %w", err)
+	}
+	refreshToken, err := getSecret(cfg.RefreshTokenEnv, "fetchbox:oauth2:token", username)
+	if err != nil {
+		return "", fmt.Errorf("refresh token: %w", err)
+	}
+
 	oauthCfg := &oauth2.Config{
 		ClientID:     cfg.ClientID,
-		ClientSecret: os.Getenv(cfg.ClientSecretEnv),
+		ClientSecret: clientSecret,
 		Endpoint:     google.Endpoint,
 		Scopes:       []string{"https://mail.google.com/"},
 	}
 	ts := oauthCfg.TokenSource(context.Background(), &oauth2.Token{
-		RefreshToken: os.Getenv(cfg.RefreshTokenEnv),
+		RefreshToken: refreshToken,
 	})
 	t, err := ts.Token()
 	if err != nil {
