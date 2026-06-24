@@ -24,12 +24,14 @@ func TestWebDAVUpload(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	t.Setenv("TEST_WEBDAV_PASS", "testpass")
+
 	// Build a webdav:// URL pointing at the test server (http underneath).
 	// httptest.Server uses http, so we use webdav:// → http.
 	stor := &Storage{
 		Type:        "webdav",
 		URL:         "webdav://user@" + srv.Listener.Addr().String() + "/",
-		PasswordEnv: "",
+		PasswordEnv: "TEST_WEBDAV_PASS",
 	}
 
 	u, err := newWebDAVUploader(stor, "/files/")
@@ -62,9 +64,12 @@ func TestWebDAVUploadError(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	t.Setenv("TEST_WEBDAV_PASS", "testpass")
+
 	stor := &Storage{
-		Type: "webdav",
-		URL:  "webdav://" + srv.Listener.Addr().String() + "/",
+		Type:        "webdav",
+		URL:         "webdav://" + srv.Listener.Addr().String() + "/",
+		PasswordEnv: "TEST_WEBDAV_PASS",
 	}
 	u, err := newWebDAVUploader(stor, "/")
 	if err != nil {

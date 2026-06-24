@@ -27,9 +27,15 @@ go.work.sum
 # env file
 .env
 
+# live config (not for version control)
+/fetchbox.yml
+
 # Binaries
 fetchbox
 docker-fetchbox
+
+# Release artifacts
+dist/
 
 # Emacs
 *~

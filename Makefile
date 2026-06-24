@@ -4,7 +4,9 @@ GOIMAGE      := golang:1.26-alpine
 GOIMAGE_TEST := golang:1.26
 SRCDIR       := $(CURDIR)/src
 
-.PHONY: all build lint test hooks docker-build image-run-test image-test docker-push clean
+DISTDIR      := $(CURDIR)/dist
+
+.PHONY: all build lint test hooks docker-build image-run-test image-test docker-push release build-darwin-arm64 build-darwin-amd64 clean
 
 all: build
 
@@ -13,6 +15,31 @@ build:
 		-v "$(SRCDIR):/src" -w /src \
 		$(GOIMAGE) \
 		go build -v -o /dev/null ./...
+
+$(DISTDIR):
+	mkdir -p $(DISTDIR)
+
+build-darwin-arm64: $(DISTDIR)
+	mkdir -p $(DISTDIR)/arm64
+	docker run --rm \
+		-v "$(SRCDIR):/build" -v "$(DISTDIR)/arm64:/dist" \
+		-w /build \
+		-e CGO_ENABLED=0 -e GOOS=darwin -e GOARCH=arm64 \
+		$(GOIMAGE) \
+		go build -o /dist/fetchbox .
+	tar czf $(DISTDIR)/fetchbox-darwin-arm64.tar.gz -C $(DISTDIR)/arm64 fetchbox
+
+build-darwin-amd64: $(DISTDIR)
+	mkdir -p $(DISTDIR)/amd64
+	docker run --rm \
+		-v "$(SRCDIR):/build" -v "$(DISTDIR)/amd64:/dist" \
+		-w /build \
+		-e CGO_ENABLED=0 -e GOOS=darwin -e GOARCH=amd64 \
+		$(GOIMAGE) \
+		go build -o /dist/fetchbox .
+	tar czf $(DISTDIR)/fetchbox-darwin-amd64.tar.gz -C $(DISTDIR)/amd64 fetchbox
+
+release: build-darwin-arm64 build-darwin-amd64
 
 lint:
 	docker run --rm \
@@ -50,3 +77,4 @@ docker-push: image-test
 
 clean:
 	rm -f src/fetchbox src/docker-fetchbox
+	rm -rf $(DISTDIR)

@@ -42,13 +42,18 @@ func newWebDAVUploader(s *Storage, path string) (FileUploader, error) {
 		username = parsed.User.Username()
 	}
 
+	password, err := getSecret(s.PasswordEnv, "fetchbox:webdav", username+"@"+parsed.Host)
+	if err != nil {
+		return nil, fmt.Errorf("get webdav password: %w", err)
+	}
+
 	basePath := strings.TrimRight(parsed.Path, "/") + "/" + strings.TrimLeft(path, "/")
 	httpURL := &url.URL{Scheme: scheme, Host: parsed.Host, Path: basePath}
 
 	return &webDAVUploader{
 		baseURL:  strings.TrimRight(httpURL.String(), "/"),
 		username: username,
-		password: s.Password(),
+		password: password,
 	}, nil
 }
 
