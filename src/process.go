@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"mime"
+	"sync"
 
 	"github.com/emersion/go-message/mail"
 )
@@ -43,11 +44,17 @@ type processor struct {
 }
 
 func (p *processor) run() {
+	var wg sync.WaitGroup
 	for _, mb := range p.cfg.Mailboxes {
-		if err := p.processMailbox(mb); err != nil {
-			log.Printf("mailbox %s: %v", mb.Name, err)
-		}
+		wg.Add(1)
+		go func(mb Mailbox) {
+			defer wg.Done()
+			if err := p.processMailbox(mb); err != nil {
+				log.Printf("mailbox %s: %v", mb.Name, err)
+			}
+		}(mb)
 	}
+	wg.Wait()
 }
 
 func (p *processor) processMailbox(mb Mailbox) error {
