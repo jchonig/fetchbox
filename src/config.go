@@ -49,9 +49,10 @@ type OAuth2Config struct {
 }
 
 type Folder struct {
-	Name    string `yaml:"name"`
-	Storage string `yaml:"storage"` // key into Config.Storage
-	Path    string `yaml:"path"`
+	Name        string `yaml:"name"`
+	Storage     string `yaml:"storage"` // key into Config.Storage
+	Path        string `yaml:"path"`
+	DeleteAfter bool   `yaml:"delete_after"` // delete messages after processing (vs mark seen)
 }
 
 func defaultConfigPath() string {

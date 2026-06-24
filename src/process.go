@@ -13,8 +13,9 @@ import (
 
 // MailFetcher abstracts IMAP operations for testability.
 type MailFetcher interface {
-	FetchUnseen(folder string) ([]RawMessage, error)
+	Fetch(folder string, unseenOnly bool) ([]RawMessage, error)
 	MarkSeen(folder string, uids []uint32) error
+	DeleteMessages(folder string, uids []uint32) error
 	Close() error
 }
 
@@ -50,11 +51,13 @@ func (p *processor) run() {
 }
 
 func (p *processor) processMailbox(mb Mailbox) error {
-	client, err := newIMAPClient(mb)
+	p.logger.infof("[%s] connecting to %s:%d", mb.Name, mb.Host, mb.Port)
+	client, err := newIMAPClient(mb, p.logger)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
 	defer client.Close()
+	p.logger.infof("[%s] logged in as %s", mb.Name, mb.Username)
 
 	for _, folder := range mb.Folders {
 		stor, ok := p.cfg.Storage[folder.Storage]
@@ -67,25 +70,28 @@ func (p *processor) processMailbox(mb Mailbox) error {
 			log.Printf("  folder %s: storage error: %v", folder.Name, err)
 			continue
 		}
-		if err := processFolder(client, folder.Name, uploader, p.noop, p.logger); err != nil {
+		if err := processFolder(client, folder.Name, folder.DeleteAfter, uploader, p.noop, p.logger); err != nil {
 			log.Printf("  folder %s: %v", folder.Name, err)
 		}
 	}
 	return nil
 }
 
-func processFolder(fetcher MailFetcher, folder string, uploader FileUploader, noop bool, l *logger) error {
-	msgs, err := fetcher.FetchUnseen(folder)
+func processFolder(fetcher MailFetcher, folder string, deleteAfter bool, uploader FileUploader, noop bool, l *logger) error {
+	msgs, err := fetcher.Fetch(folder, !deleteAfter)
 	if err != nil {
 		return fmt.Errorf("fetch: %w", err)
 	}
 
-	if len(msgs) == 0 {
-		l.debugf("no unseen messages in %s", folder)
-		return nil
+	if deleteAfter {
+		l.infof("[%s] found %d message(s)", folder, len(msgs))
+	} else {
+		l.infof("[%s] found %d unseen message(s)", folder, len(msgs))
 	}
 
-	l.infof("found %d unseen messages in %s", len(msgs), folder)
+	if len(msgs) == 0 {
+		return nil
+	}
 
 	var processed []uint32
 
@@ -112,7 +118,15 @@ func processFolder(fetcher MailFetcher, folder string, uploader FileUploader, no
 		}
 	}
 
-	if !noop && len(processed) > 0 {
+	if noop || len(processed) == 0 {
+		return nil
+	}
+
+	if deleteAfter {
+		if err := fetcher.DeleteMessages(folder, processed); err != nil {
+			return fmt.Errorf("delete messages: %w", err)
+		}
+	} else {
 		if err := fetcher.MarkSeen(folder, processed); err != nil {
 			return fmt.Errorf("mark seen: %w", err)
 		}

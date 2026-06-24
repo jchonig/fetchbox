@@ -108,6 +108,11 @@ func launchdUninstall() error {
 		return fmt.Errorf("plist path: %w", err)
 	}
 
+	if _, err := os.Stat(plistPath); os.IsNotExist(err) {
+		fmt.Printf("%s is not installed\n", launchdLabel)
+		return nil
+	}
+
 	uid := os.Getuid()
 	out, err := exec.Command("launchctl", "bootout",
 		fmt.Sprintf("gui/%d", uid), plistPath).CombinedOutput()

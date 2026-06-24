@@ -107,6 +107,10 @@ mailboxes:
       - name: INBOX
         storage: nextcloud
         path: /proton/
+      - name: Labels/RecordKeeper
+        storage: nextcloud
+        path: /recordkeeper/
+        delete_after: true   # expunge after upload
 
   - name: Gmail
     host: imap.gmail.com
@@ -162,6 +166,7 @@ mailboxes:
 | `name` | IMAP folder name (e.g. `INBOX`) |
 | `storage` | Name of a storage entry defined in the top-level `storage:` map |
 | `path` | Path within the storage base URL where attachments are placed |
+| `delete_after` | If `true`, fetch **all** messages (not just unseen) and expunge them after upload. Default `false` (mark seen). Use for label-based processing queues where messages should be removed after saving. |
 
 ---
 
@@ -199,9 +204,9 @@ fetchbox [flags]
   --list-folders       list available IMAP folders for each mailbox and exit
   --install            install launchd service and exit (macOS only)
   --uninstall          remove launchd service and exit (macOS only)
-  -v                   verbose logging
-  -d                   debug logging
-  -n                   dry run — fetch but do not upload or mark messages seen
+  -v                   verbose logging (connect/login/folder messages)
+  -d                   debug logging (includes IMAP protocol trace)
+  -n                   dry run — fetch but do not upload, mark seen, or delete
 ```
 
 ---

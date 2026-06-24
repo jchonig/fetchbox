@@ -9,22 +9,32 @@ import (
 type fakeFetcher struct {
 	msgs     map[string][]RawMessage
 	seen     map[string][]uint32
+	deleted  map[string][]uint32
 	fetchErr error
 	markErr  error
 }
 
 func newFakeFetcher() *fakeFetcher {
 	return &fakeFetcher{
-		msgs: make(map[string][]RawMessage),
-		seen: make(map[string][]uint32),
+		msgs:    make(map[string][]RawMessage),
+		seen:    make(map[string][]uint32),
+		deleted: make(map[string][]uint32),
 	}
 }
 
-func (f *fakeFetcher) FetchUnseen(folder string) ([]RawMessage, error) {
+func (f *fakeFetcher) Fetch(folder string, _ bool) ([]RawMessage, error) {
 	if f.fetchErr != nil {
 		return nil, f.fetchErr
 	}
 	return f.msgs[folder], nil
+}
+
+func (f *fakeFetcher) DeleteMessages(folder string, uids []uint32) error {
+	if f.markErr != nil {
+		return f.markErr
+	}
+	f.deleted[folder] = append(f.deleted[folder], uids...)
+	return nil
 }
 
 func (f *fakeFetcher) MarkSeen(folder string, uids []uint32) error {
@@ -62,7 +72,7 @@ func TestProcessFolderEmpty(t *testing.T) {
 	fetcher := newFakeFetcher()
 	uploader := &fakeUploader{}
 
-	if err := processFolder(fetcher, "INBOX", uploader, false, noopLogger); err != nil {
+	if err := processFolder(fetcher, "INBOX", false, uploader, false, noopLogger); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(uploader.uploads) != 0 {
@@ -80,7 +90,7 @@ func TestProcessFolderNoop(t *testing.T) {
 	}
 	uploader := &fakeUploader{}
 
-	if err := processFolder(fetcher, "INBOX", uploader, true, noopLogger); err != nil {
+	if err := processFolder(fetcher, "INBOX", false, uploader, true, noopLogger); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(uploader.uploads) != 0 {
@@ -99,7 +109,7 @@ func TestProcessFolderWithAttachment(t *testing.T) {
 	}
 	uploader := &fakeUploader{}
 
-	if err := processFolder(fetcher, "INBOX", uploader, false, noopLogger); err != nil {
+	if err := processFolder(fetcher, "INBOX", false, uploader, false, noopLogger); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -117,12 +127,34 @@ func TestProcessFolderWithAttachment(t *testing.T) {
 	}
 }
 
+func TestProcessFolderDeleteAfter(t *testing.T) {
+	fetcher := newFakeFetcher()
+	want := []byte("attachment contents")
+	fetcher.msgs["INBOX"] = []RawMessage{
+		{UID: 7, Data: buildMessage("doc.pdf", want)},
+	}
+	uploader := &fakeUploader{}
+
+	if err := processFolder(fetcher, "INBOX", true, uploader, false, noopLogger); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(uploader.uploads) != 1 {
+		t.Fatalf("uploads: got %d, want 1", len(uploader.uploads))
+	}
+	if len(fetcher.seen["INBOX"]) != 0 {
+		t.Errorf("should not mark seen when delete_after, got %v", fetcher.seen["INBOX"])
+	}
+	if len(fetcher.deleted["INBOX"]) != 1 || fetcher.deleted["INBOX"][0] != 7 {
+		t.Errorf("deleted UIDs: got %v, want [7]", fetcher.deleted["INBOX"])
+	}
+}
+
 func TestProcessFolderFetchError(t *testing.T) {
 	fetcher := newFakeFetcher()
 	fetcher.fetchErr = errors.New("imap failure")
 	uploader := &fakeUploader{}
 
-	err := processFolder(fetcher, "INBOX", uploader, false, noopLogger)
+	err := processFolder(fetcher, "INBOX", false, uploader, false, noopLogger)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -136,7 +168,7 @@ func TestProcessFolderUploadError(t *testing.T) {
 	uploader := &fakeUploader{err: errors.New("webdav 500")}
 
 	// Upload error should not propagate as a hard error, but uid should not be marked seen
-	if err := processFolder(fetcher, "INBOX", uploader, false, noopLogger); err != nil {
+	if err := processFolder(fetcher, "INBOX", false, uploader, false, noopLogger); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(fetcher.seen["INBOX"]) != 0 {

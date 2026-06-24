@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"strconv"
 
@@ -19,19 +20,25 @@ type imapClient struct {
 	c *imapclient.Client
 }
 
-func newIMAPClient(mb Mailbox) (MailFetcher, error) {
+func newIMAPClient(mb Mailbox, l *logger) (MailFetcher, error) {
 	addr := net.JoinHostPort(mb.Host, strconv.Itoa(mb.Port))
+
+	opts := &imapclient.Options{}
+	if mb.TLS {
+		opts.TLSConfig = &tls.Config{ServerName: mb.Host}
+	}
+	if l != nil && l.debug {
+		opts.DebugWriter = log.Writer()
+	}
 
 	var (
 		c   *imapclient.Client
 		err error
 	)
 	if mb.TLS {
-		c, err = imapclient.DialTLS(addr, &imapclient.Options{
-			TLSConfig: &tls.Config{ServerName: mb.Host},
-		})
+		c, err = imapclient.DialTLS(addr, opts)
 	} else {
-		c, err = imapclient.DialInsecure(addr, nil)
+		c, err = imapclient.DialInsecure(addr, opts)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", addr, err)
@@ -90,14 +97,16 @@ func gmailAccessToken(cfg *OAuth2Config, username string) (string, error) {
 	return t.AccessToken, nil
 }
 
-func (ic *imapClient) FetchUnseen(folder string) ([]RawMessage, error) {
+func (ic *imapClient) Fetch(folder string, unseenOnly bool) ([]RawMessage, error) {
 	if _, err := ic.c.Select(folder, nil).Wait(); err != nil {
 		return nil, fmt.Errorf("select %q: %w", folder, err)
 	}
 
-	searchData, err := ic.c.UIDSearch(&imap.SearchCriteria{
-		NotFlag: []imap.Flag{imap.FlagSeen},
-	}, nil).Wait()
+	criteria := &imap.SearchCriteria{}
+	if unseenOnly {
+		criteria.NotFlag = []imap.Flag{imap.FlagSeen}
+	}
+	searchData, err := ic.c.UIDSearch(criteria, nil).Wait()
 	if err != nil {
 		return nil, fmt.Errorf("uid search: %w", err)
 	}
@@ -156,6 +165,30 @@ func (ic *imapClient) FetchUnseen(folder string) ([]RawMessage, error) {
 	return msgs, nil
 }
 
+func (ic *imapClient) DeleteMessages(folder string, uids []uint32) error {
+	if len(uids) == 0 {
+		return nil
+	}
+	imapUIDs := make([]imap.UID, len(uids))
+	for i, uid := range uids {
+		imapUIDs[i] = imap.UID(uid)
+	}
+	uidSet := imap.UIDSetNum(imapUIDs...)
+
+	if err := ic.c.Store(uidSet, &imap.StoreFlags{
+		Op:     imap.StoreFlagsAdd,
+		Silent: true,
+		Flags:  []imap.Flag{imap.FlagDeleted},
+	}, nil).Close(); err != nil {
+		return fmt.Errorf("mark deleted: %w", err)
+	}
+
+	if _, err := ic.c.Expunge().Collect(); err != nil {
+		return fmt.Errorf("expunge: %w", err)
+	}
+	return nil
+}
+
 func (ic *imapClient) MarkSeen(folder string, uids []uint32) error {
 	if len(uids) == 0 {
 		return nil
@@ -180,7 +213,7 @@ func (ic *imapClient) Close() error {
 
 // listFolders connects to mb and prints all mailbox names to stdout.
 func listFolders(mb Mailbox) error {
-	client, err := newIMAPClient(mb)
+	client, err := newIMAPClient(mb, nil)
 	if err != nil {
 		return err
 	}
