@@ -40,13 +40,14 @@ On first use, FetchBox will prompt for each password/secret not already in the K
 ### Install as a launchd service
 
 ```bash
-fetchbox --install
+brew services start fetchbox
 ```
 
-This writes `~/Library/LaunchAgents/net.honig.fetchbox.plist`, bootstraps the service immediately, and logs to `~/Library/Logs/fetchbox.log`.
+This registers the service with launchctl to start at login and runs it immediately. Logs go to `/opt/homebrew/var/log/fetchbox.log`.
 
 ```bash
-fetchbox --uninstall    # remove the service
+brew services stop fetchbox     # stop and disable
+brew services restart fetchbox  # pick up a new config or after upgrade
 ```
 
 ---
@@ -203,8 +204,7 @@ fetchbox [flags]
   --config path        path to config file (default ~/.config/fetchbox.yml)
   --daemon             run continuously at the configured interval
   --list-folders       list available IMAP folders for each mailbox and exit
-  --install            install launchd service and exit (macOS only)
-  --uninstall          remove launchd service and exit (macOS only)
+  --version            print version and exit
   -v                   verbose logging (connect/login/folder messages)
   -d                   debug logging (includes IMAP protocol trace)
   -n                   dry run — fetch but do not upload, mark seen, or delete

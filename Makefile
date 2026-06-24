@@ -26,7 +26,7 @@ build-darwin-arm64: $(DISTDIR)
 		-w /build \
 		-e CGO_ENABLED=0 -e GOOS=darwin -e GOARCH=arm64 \
 		$(GOIMAGE) \
-		go build -o /dist/fetchbox .
+		go build -ldflags "-X main.version=$(TAG)" -o /dist/fetchbox .
 	tar czf $(DISTDIR)/fetchbox-darwin-arm64.tar.gz -C $(DISTDIR)/arm64 fetchbox
 
 build-darwin-amd64: $(DISTDIR)
@@ -36,7 +36,7 @@ build-darwin-amd64: $(DISTDIR)
 		-w /build \
 		-e CGO_ENABLED=0 -e GOOS=darwin -e GOARCH=amd64 \
 		$(GOIMAGE) \
-		go build -o /dist/fetchbox .
+		go build -ldflags "-X main.version=$(TAG)" -o /dist/fetchbox .
 	tar czf $(DISTDIR)/fetchbox-darwin-amd64.tar.gz -C $(DISTDIR)/amd64 fetchbox
 
 release: build-darwin-arm64 build-darwin-amd64
