@@ -109,6 +109,8 @@ func processFolder(fetcher MailFetcher, folder string, deleteAfter bool, uploade
 				if err := uploader.Upload(att.Filename, att.Data); err != nil {
 					log.Printf("  uid %d: upload %q: %v", msg.UID, att.Filename, err)
 					saved = false
+				} else {
+					l.infof("  uid %d: uploaded %q", msg.UID, att.Filename)
 				}
 			}
 		}
