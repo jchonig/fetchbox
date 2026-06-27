@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -15,6 +16,12 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
+
+// maxIdleDuration is the longest we stay in IDLE before forcing a catch-up
+// pass, regardless of whether the server sends a notification. This guards
+// against stale connections where the IMAP library's internal IDLE restart
+// fails silently and no further notifications are ever delivered.
+const maxIdleDuration = 10 * time.Minute
 
 type imapClient struct {
 	c      *imapclient.Client
@@ -230,15 +237,18 @@ func (ic *imapClient) MarkSeen(folder string, uids []uint32) error {
 }
 
 // IdleSelected enters IMAP IDLE on the already-selected folder and blocks until
-// a new-mail notification arrives or stop is closed. The folder must have been
-// selected by a prior Fetch call.
+// a new-mail notification arrives, maxIdleDuration elapses (periodic catch-up),
+// or stop is closed. The folder must have been selected by a prior Fetch call.
 func (ic *imapClient) IdleSelected(stop <-chan struct{}) error {
 	idleCmd, err := ic.c.Idle()
 	if err != nil {
 		return err
 	}
+	timer := time.NewTimer(maxIdleDuration)
+	defer timer.Stop()
 	select {
 	case <-ic.notify:
+	case <-timer.C:
 	case <-stop:
 	}
 	idleCmd.Close()
